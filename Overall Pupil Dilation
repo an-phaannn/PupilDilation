@@ -1,0 +1,206 @@
+# Uploading Data as a csv file
+
+import re
+f1 = open("MSG.csv", "w")
+f1.write('MSG,description\n')
+f2 = open("PabloData.csv", "w")
+f2.write('time,x-axis,y-axis,pupilsize,ignore,na\n')
+with open ('240212_1519_Pablo_eglydriver_eye.asc', 'r') as file:
+    for line in file:
+        x = re.search("^MSG", line)
+        if x:
+            line = re.sub(r'\t', ',', line)
+            print("MSG", line)
+            f1.write(line)
+        else:
+            x = re.search("^[0-9]*\t.*\t.*\t.", line)
+            if x:
+                line = re.sub(r'\t', ',', line)
+                print("PabloData", line)
+                f2.write(line)
+f1.close()
+f2.close()
+print("Finished")
+
+
+
+
+
+# Filtering Data (3/22/24)
+import pandas as pd
+
+df = pd.read_csv('PabloData.csv')
+
+# Create data frame, filter catch trials and break eye from behavior data
+df1 = pd.read_csv('240212_1519_Pablo_eglydriver.csv')
+df1["correct"] = (df1.t_release - df1.t_contrast_change) < 800
+
+filter1 = (df1.t_contrast_change > 0) & (df1.break_eye == False) & (df1.t_cue_on > 0) & (df1.correct == True)
+
+df2 = df1.where(filter1).dropna()
+
+df2 = df2.reset_index()  # make sure indexes pair with number of rows
+
+# time difference between eglydriver and eye data
+td = 1189
+
+# selecting filtered data from eye tracking data
+for index, row in df2.iterrows():
+    if index == 0:
+        filter = (df.time >= row['t_lever_down']-td) & (df.time <= row['t_release']-td)
+    else:
+        filter = filter | ((df.time >= row['t_lever_down']-td) & (df.time <= row['t_release']-td))
+        #print(index, ': ', row['t_lever_down']-td, row['t_release']-td)
+
+# t_cue_on minus difference = time of behavioral data 
+df2.t_contrast_change = df2.t_contrast_change - td
+
+# t_cue_on minus difference = time of behavioral data 
+df2.t_cue_on = df2.t_cue_on - td
+
+trial = df.where(filter).dropna()
+
+trial.to_csv('PabloFiltered.csv', index=False)
+#print(trial1.to_markdown())
+print("Finished")
+
+
+
+
+
+# Time/X values of graph
+TBeforeC = 200
+TAfterC = 800
+TLengthC = TBeforeC + TAfterC + 1
+
+# Align Cue On at 0
+CueOn = df2["t_cue_on"].values
+
+CueOnData = []
+for n in CueOn:
+    filter = (df.time >= (n - TBeforeC)) & (df.time <= (n + TAfterC))
+    trial = df.loc[filter,"pupilsize"].values
+    if trial.shape[0] < TLengthC:
+        continue
+    CueOnData.append(trial)
+    print(trial.shape)
+
+
+
+
+
+import numpy as np
+import matplotlib.pylab as plt
+
+# Turn CueOnData into array
+CueOnData = np.stack(CueOnData)
+
+# Baseline-corrected CueOnData
+Nfactor = np.mean(CueOnData[:, 0:200])
+
+NCueOnData = CueOnData - Nfactor
+
+#Standard error of Cue On data
+stderr = np.std(NCueOnData)/np.sqrt(NCueOnData.shape[0])
+
+print(stderr)
+
+# Graph of Cue On at 0 with stderr
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData.mean(0))
+plt.fill_between(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData.mean(0) - stderr, NCueOnData.mean(0) + stderr, alpha=0.2)
+
+# Vertical Line at 0
+plt.axvline(x=0, color = 'red')
+
+# Graph labels
+plt.title("Mean Pupil Size When Cue Appears")
+plt.xlabel("Time (ms)")
+plt.ylabel("Baseline-Corrected Mean Pupil Size (pixels)")
+
+
+
+
+
+#Graph of 5 Single Trials of Cue On
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData[100], label = "100")
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData[200], label = "200")
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData[300], label = "300")
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData[400], label = "400")
+plt.plot(np.linspace(-TBeforeC,TAfterC, num=TLengthC), NCueOnData[500], label = "500")
+plt.legend(loc="upper left")
+
+# Vertical Line at 0
+plt.axvline(x=0, color = 'red')
+
+# Graph labels
+plt.title("Mean Pupil Size When Cue Appears in 5 Single Trials")
+plt.xlabel("Time (ms)")
+plt.ylabel("Baseline-Corrected Mean Pupil Size (pixels)")
+
+
+
+
+
+# Time/X values of graph
+TBeforeT = 800
+TAfterT = 300
+TLengthT = TBeforeT + TAfterT + 1
+
+# Align Target On at 0
+TargetOn = df2["t_contrast_change"].values
+
+TargetOnData = []
+for n in TargetOn:
+    filter = (df.time >= (n - TBeforeT)) & (df.time <= (n + TAfterT))
+    trial1 = df.loc[filter,"pupilsize"].values
+    if trial1.shape[0] < TLengthT:
+        continue
+    TargetOnData.append(trial1)
+    print(trial1.shape)
+
+
+
+
+
+# List to array
+TargetOnData = np.stack(TargetOnData)
+
+#Normalizing TargetOnData
+NTargetOnData = TargetOnData - Nfactor
+
+#Standard deviation of Cue On data
+stderr = np.std(NTargetOnData)/np.sqrt(NTargetOnData.shape[0])
+
+print(stderr)
+
+# Plot of TargetOn with stderr
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData.mean(0))
+plt.fill_between(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData.mean(0) - stderr, NTargetOnData.mean(0) + stderr, alpha=0.2)
+
+# Vertical Line at 0
+plt.axvline(x=0, color = 'red')
+
+# Graph labels
+plt.title("Mean Pupil Size When Target Appears")
+plt.xlabel("Time (ms)")
+plt.ylabel("Baseline-Corrected Mean Pupil Size (pixels)")
+
+
+
+
+
+#Graph of 5 Single Trials of Target On
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData[100], label = "100")
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData[200], label = "200")
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData[300], label = "300")
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData[400], label = "400")
+plt.plot(np.linspace(-TBeforeT,TAfterT, num=TLengthT), NTargetOnData[500], label = "500")
+plt.legend(loc="upper left")
+
+# Vertical Line at 0
+plt.axvline(x=0, color = 'red')
+
+# Graph labels
+plt.title("Pupil Size When Target Appears in 5 Single Trials")
+plt.xlabel("Time (ms)")
+plt.ylabel("Baseline-Corrected Mean Pupil Size (pixels)")
